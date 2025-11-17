@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pourtoi WebAR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { margin:0; height:100%; background:#000; }
+    #video { display:none; }
+    #output { width:100%; height:100%; display:block; }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="output"></canvas>
+
+  <!-- Use ES modules for Three.js + GLTFLoader -->
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.module.js';
+    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.150.0/examples/jsm/loaders/GLTFLoader.js';
+    import * as poseDetection from 'https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection';
+    import '@tensorflow/tfjs';
+
+    const smoothFactor = 0.2;
+    let scene, camera, renderer, detector, garments = [];
+
+    async function setupCamera() {
+      const video = document.getElementById('video');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      return video;
+    }
+
+    async function setupPose() {
+      detector = await poseDetection.createDetector(
+        poseDetection.SupportedModels.MoveNet,
+        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+      );
+    }
+
+    function setupThree() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('output'), antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.position.z = 3;
+
+      // Add ambient light so garments are visible
+      const light = new THREE.AmbientLight(0xffffff, 1.5);
+      scene.add(light);
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    }
+
+    async function loadConfig() {
+      const res = await fetch('config.json');
+      const cfg = await res.json();
+      return cfg;
+    }
+
+    async function loadGarments(cfg) {
+      const loader = new GLTFLoader();
+      const promises = cfg.garments.map(g => new Promise((resolve, reject) => {
+        loader.load(g.file, gltf => {
+          const model = gltf.scene;
+          model.renderOrder = g.layer ?? 0;
+          scene.add(model);
+
+          resolve({
+            name: g.name,
+            model,
+            anchor: g.anchor,
+            offsetY: g.offsetY ?? 0,
+            offsetX: g.offsetX ?? 0,
+            offsetZ: g.offsetZ ?? 0,
+            scaleY: g.scaleY ?? 1.2,
+            baseScale: g.baseScale ?? 0.5,
+            smoothing: g.smoothing ?? smoothFactor,
+            pos: new THREE.Vector3(),
+            scale: new THREE.Vector3(g.baseScale, g.baseScale, g.baseScale),
+            rot: 0
+          });
+        }, undefined, err => reject(err));
+      }));
+      garments = await Promise.all(promises);
+    }
+
+    function getKeypoint(keypoints, name) {
+      return keypoints.find(k => k.name === name);
+    }
+
+    function toNDC(x, y) {
+      const nx = (x / window.innerWidth) * 2 - 1;
+      const ny = -(y / window.innerHeight) * 2 + 1;
+      return { x: nx, y: ny };
+    }
+
+    function updateGarmentFromAnchors(g, a1, a2) {
+      const midPxX = (a1.x + a2.x) / 2;
+      const midPxY = (a1.y + a2.y) / 2;
+      const { x: midX, y: midY } = toNDC(midPxX, midPxY);
+      const span = Math.abs(a1.x - a2.x) / window.innerWidth * 2;
+      const angle = Math.atan2(a2.y - a1.y, a2.x - a1.x);
+
+      const s = g.smoothing;
+      g.pos.lerp(new THREE.Vector3(midX + g.offsetX, midY + g.offsetY, g.offsetZ), s);
+      g.scale.lerp(new THREE.Vector3(span, span * g.scaleY, span), s);
+      g.rot = g.rot + (angle - g.rot) * s;
+
+      g.model.position.copy(g.pos);
+      g.model.scale.copy(g.scale);
+      g.model.rotation.z = g.rot;
+    }
+
+    async function animate(video) {
+      async function frame() {
+        const poses = await detector.estimatePoses(video);
+        if (poses.length > 0) {
+          const keypoints = poses[0].keypoints;
+          for (const g of garments) {
+            const a1 = getKeypoint(keypoints, g.anchor[0]);
+            const a2 = getKeypoint(keypoints, g.anchor[1]);
+            if (a1 && a2) updateGarmentFromAnchors(g, a1, a2);
+          }
+        }
+        renderer.render(scene, camera);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    async function init() {
+      try {
+        const video = await setupCamera();
+        await setupPose();
+        setupThree();
+        const cfg = await loadConfig();
+        await loadGarments(cfg);
+        await animate(video);
+      } catch (e) {
+        console.error('Initialization error:', e);
+        alert('Failed to initialize WebAR. Check console for details and asset paths.');
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
