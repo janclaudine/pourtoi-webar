@@ -2,7 +2,7 @@
   "garments": [
     {
       "name": "shirt",
-      "file": "https://drive.google.com/uc?export=download&id=1-YDE6nR9-R_rBT5enShh0zrv2T0cBXi6",
+      "file": "shirt.glb",
       "anchor": ["left_shoulder", "right_shoulder"],
       "layer": 1,
       "offsetY": 0,
@@ -11,22 +11,12 @@
     },
     {
       "name": "pants",
-      "file": "https://drive.google.com/uc?export=download&id=1sGwQ3bMenyjmurrrlpbZDxZJuxGcHtzd",
+      "file": "pants.glb",
       "anchor": ["left_hip", "right_hip"],
       "layer": 0,
       "offsetY": -0.5,
       "scaleY": 1.5,
       "baseScale": 0.5
-    },
-    {
-      "name": "jacket",
-      "file": "https://drive.google.com/uc?export=download&id=10e_JyB4u9SW0wxK4eLk8y1nZokF4h40G",
-      "anchor": ["left_shoulder", "right_shoulder"],
-      "layer": 2,
-      "offsetY": 0,
-      "offsetZ": 0.05,
-      "scaleY": 1.3,
-      "baseScale": 0.55
     }
   ]
 }
