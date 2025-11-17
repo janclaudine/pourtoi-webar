@@ -5,38 +5,56 @@
   <title>Pourtoi WebAR Garments</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    body { margin: 0; overflow: hidden; }
-    canvas { display: block; }
-    video { display: none; }
+    body { margin: 0; overflow: hidden; position: relative; }
+    video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); } /* Mirror for natural AR feel */
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
   </style>
 </head>
 <body>
   <video id="video" autoplay playsinline></video>
-
   <script type="module">
-    // ✅ Import ES modules directly from CDN
+    // Import ES modules from CDN
     import * as tf from "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.esm.js";
     import * as poseDetection from "https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@0.0.7/dist/pose-detection.esm.js";
     import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
     import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 
-    // ✅ Camera setup
+    // Camera setup
     const video = document.getElementById("video");
-    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } }).then(stream => {
       video.srcObject = stream;
-    });
+      video.play();
+    }).catch(err => console.error("Camera access error:", err));
 
-    // ✅ Three.js scene setup
+    // Three.js scene setup
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
-
     const light = new THREE.AmbientLight(0xffffff, 1.5);
     scene.add(light);
 
-    // ✅ Load garments from config.json
+    // Adjust camera on video metadata load
+    video.addEventListener('loadedmetadata', () => {
+      const aspect = video.videoWidth / video.videoHeight;
+      camera.aspect = aspect;
+      camera.fov = 60; // Approximate real camera FOV; adjust if needed
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Window resize handler
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Array to store loaded garments
+    let garments = [];
+
+    // Load garments from config.json
     fetch("config.json")
       .then(res => res.json())
       .then(cfg => {
@@ -47,30 +65,68 @@
             const model = gltf.scene;
             model.scale.set(g.baseScale, g.baseScale, g.baseScale);
             model.position.y += g.offsetY || 0;
-            scene.add(model);
+            garments.push(model);
           }, undefined, err => {
             console.error("Failed to load garment:", g.file, err);
           });
         });
-      });
+      })
+      .catch(err => console.error("Failed to load config.json:", err));
 
     camera.position.z = 2;
 
+    // Pose detection setup
+    let detector;
+    async function initPose() {
+      const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
+      console.log("Pose detector ready");
+    }
+    initPose().catch(err => console.error("Pose init error:", err));
+
+    // Animate loop
     function animate() {
       requestAnimationFrame(animate);
+
+      if (detector && video.readyState === 4) {
+        detector.estimatePoses(video).then(poses => {
+          if (poses.length > 0) {
+            const keypoints = poses[0].keypoints;
+            // Example for upper body: shoulders (5: left, 6: right)
+            const leftShoulder = keypoints[5];
+            const rightShoulder = keypoints[6];
+
+            if (leftShoulder.score > 0.5 && rightShoulder.score > 0.5) {
+              garments.forEach(model => {
+                // Midpoint position (normalized to NDC: -1 to 1)
+                const midX = ((leftShoulder.x + rightShoulder.x) / 2 / video.videoWidth) * 2 - 1;
+                const midY = -((leftShoulder.y + rightShoulder.y) / 2 / video.videoHeight) * 2 + 1;
+                model.position.set(midX * 1.5, midY * 1.5, -1); // Adjust multipliers/depth
+
+                // Rotation based on shoulder angle
+                const angle = Math.atan2(rightShoulder.y - leftShoulder.y, rightShoulder.x - leftShoulder.x);
+                model.rotation.z = angle;
+
+                // Scale based on shoulder distance
+                const dist = Math.hypot(rightShoulder.x - leftShoulder.x, rightShoulder.y - leftShoulder.y) / video.videoWidth;
+                const scale = dist * 5; // Tune this
+                model.scale.set(scale, scale, scale);
+
+                if (!scene.children.includes(model)) scene.add(model);
+              });
+            } else {
+              // Hide garments if no good pose
+              garments.forEach(model => {
+                if (scene.children.includes(model)) scene.remove(model);
+              });
+            }
+          }
+        }).catch(err => console.error("Pose estimation error:", err));
+      }
+
       renderer.render(scene, camera);
     }
     animate();
-
-    // ✅ Pose detection setup
-    async function initPose() {
-      const detector = await poseDetection.createDetector(
-        poseDetection.SupportedModels.MoveNet,
-        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
-      );
-      console.log("Pose detector ready:", detector);
-    }
-    initPose();
   </script>
 </body>
 </html>
