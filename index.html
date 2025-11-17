@@ -2,45 +2,46 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Pourtoi WebAR</title>
+  <title>Pourtoi WebAR Garments</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- ✅ TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
 
-  <!-- ✅ Pose Detection model -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@0.0.7/dist/pose-detection.min.js"></script>
+  <!-- ✅ Pose Detection -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
-  <!-- ✅ Mediapipe backend for pose detection -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"></script>
+  <!-- ✅ Mediapipe Pose backend -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
 
-  <!-- ✅ Three.js -->
+  <!-- ✅ Three.js + GLTFLoader -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/GLTFLoader.js"></script>
 
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-    video { display: none; } /* hide camera feed if you only want AR overlay */
+    video { display: none; }
   </style>
 </head>
 <body>
   <video id="video" autoplay playsinline></video>
+
   <script type="module">
-    // ✅ Initialize camera
+    // ✅ Camera setup
     const video = document.getElementById("video");
     navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
       video.srcObject = stream;
     });
 
-    // ✅ Initialize Three.js scene
+    // ✅ Three.js scene setup
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // Add light
+    // Light
     const light = new THREE.AmbientLight(0xffffff, 1.5);
     scene.add(light);
 
@@ -54,6 +55,7 @@
             console.log("Loaded garment:", g.file);
             const model = gltf.scene;
             model.scale.set(g.baseScale, g.baseScale, g.baseScale);
+            model.position.y += g.offsetY || 0;
             scene.add(model);
           }, undefined, err => {
             console.error("Failed to load garment:", g.file, err);
